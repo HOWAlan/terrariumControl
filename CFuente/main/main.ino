@@ -2,15 +2,15 @@
 #include <WiFi.h>
 #include <time.h>
 #include "ControlActuador.h"
-#include <Adafruit_NeoPixel.h>
 #include "RGBLed.h"
 
 #define PIN_R 21
 #define PIN_G 20
 #define PIN_B 19
 
-#define PIN_PUMP 6
+#define PIN_PUMP 6 
 #define PIN_HUM 0 
+#define PIN_LIGHT 1
 
 #define RETRIES_MAX 3
 
@@ -18,18 +18,23 @@
 const char* WIFI_SSID = "IZZI-343A";
 const char* WIFI_PASS = "RtPzaDTx";
 
-// Ajuste de Zona Horaria en segundos (Ejemplo: UTC-6 para México = -6 * 3600)
+// Ajuste de Zona Horaria en segundos (UTC-6 para México)
 const long OFFSET_ZONA_HORARIA = -6 * 3600;
-const int DAYLIGHT_OFFSET = 0; // Ajuste de horario de verano (si aplica)
+const int DAYLIGHT_OFFSET = 0;
 
 // Servidores NTP
 const char* NTP_SERVER = "pool.ntp.org";
 
 // --- INSTANCIAS GLOBALES ---
-// Instancia del actuador 'bomba' en el Pin 6 (Pin 6 de tu tarjeta)
 ControlActuador pump(1, "bomba", PIN_PUMP, ON_OFF_TYPE);
-ControlActuador hum(2, "Humidificador", PIN_HUM,SHOT_TYPE);
-RGBLed indicatorLed (PIN_R,PIN_G,PIN_B,ACTIVE_HIGH);
+ControlActuador light(2, "lampara", PIN_LIGHT, ON_OFF_TYPE);
+ControlActuador hum(3, "Humidificador", PIN_HUM, SHOT_TYPE);
+
+// Arreglo global de actuadores
+ControlActuador misActuadores[3] = {pump, light, hum};
+const int NUM_ACTUADORES = 3;
+
+RGBLed indicatorLed(PIN_R, PIN_G, PIN_B, ACTIVE_HIGH);
 
 // Control de intervalos no bloqueantes (en milisegundos)
 unsigned long ultimoTiempoRTC = 0;
@@ -38,15 +43,10 @@ const unsigned long INTERVALO_RTC = 30000; // 30 segundos
 unsigned long ultimoTiempoActuador = 0;
 const unsigned long INTERVALO_ACTUADOR = 30000; // 30 segundos
 
-//Adafruit_NeoPixel strip = Adafruit_NeoPixel(1, PIN, NEO_GRB + NEO_KHZ800);
-
 // -------------------------------------------------------------
 // FUNCIONES DE RED Y RELOJ
 // -------------------------------------------------------------
 
-/**
- * Establece la conexión a la red WiFi con un timeout de 15 segundos
- */
 bool conectar_wifi() {
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -54,7 +54,6 @@ bool conectar_wifi() {
 
     unsigned long inicio = millis();
     while (WiFi.status() != WL_CONNECTED) {
-        // Si transcurren más de 15 segundos (15000 ms), aborta el intento
         indicatorLed.ShowStatus(PROCESS_STATUS);
 
         if (millis() - inicio > 15000) {
@@ -68,31 +67,19 @@ bool conectar_wifi() {
     Serial.println(WiFi.localIP());
     return true;
 }
-/**
- * Configura la sincronización automática del RTC interno vía NTP
- */
+
 void sincronizar_rtc_ntp() {
     Serial.println("Obteniendo hora desde el servidor NTP...");
-    
-    // Configura la zona horaria y los servidores NTP
     configTime(OFFSET_ZONA_HORARIA, DAYLIGHT_OFFSET, NTP_SERVER);
 
     struct tm timeinfo;
-    // Intenta obtener la hora local validando que el RTC se haya actualizado
-    if (getLocalTime(&timeinfo, 5000)) { // Timeout de 5s para sincronizar
+    if (getLocalTime(&timeinfo, 5000)) {
         Serial.println("RTC interno sincronizado con éxito.");
     } else {
         Serial.println("Error al sincronizar con el servidor NTP.");
     }
 }
 
-// -------------------------------------------------------------
-// TAREAS PERIÓDICAS (Equivalentes a las corrutinas asyncio)
-// -------------------------------------------------------------
-
-/**
- * Consulta e imprime la fecha y hora almacenadas en el RTC interno
- */
 void bucle_consulta_rtc() {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
@@ -112,18 +99,20 @@ void bucle_consulta_rtc() {
                   timeinfo.tm_sec);
 }
 
-/**
- * Demonio de verificación del estado del actuador
- */
-void actuatorDaemon() {
-    Serial.println("verificando actuador");
-    pump.verificarTemporizador();
-    Serial.println(pump.getActuatorInfo());
-    Serial.println("______________________________________________");
-    hum.verificarTemporizador();
-    Serial.println(hum.getActuatorInfo());
-    Serial.println("______________________________________________");
+// -------------------------------------------------------------
+// TAREAS PERIÓDICAS
+// -------------------------------------------------------------
 
+// Se recibe el arreglo y su tamaño explícitamente para evitar errores de memoria
+void actuatorDaemon(ControlActuador actuators[], int size) {
+    Serial.println("______________________________________________");
+    Serial.println("Verificando actuadores...");
+    for (int i = 0; i < size; i++) {
+        actuators[i].verificarTemporizador();
+        Serial.println(actuators[i].getActuatorInfo());
+        Serial.println("._._._._._._._._._._._._._._._._._._._._._._._._.");
+    }
+    Serial.println("______________________________________________");
 }
 
 // -------------------------------------------------------------
@@ -134,48 +123,47 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    // Configuración inicial del actuador (bomba)
-    pump.programar("8:00",15);
-    hum.programar("11:27", 4, 400);
-    //strip.begin();
-    //strip.setPixelColor(0, 50, 0, 0); // set to red, full brightness
-    //strip.show();
+    // Configuración inicial de los actuadores
+    pump.programar("08:00", 23);
+    hum.programar("11:00", 4, 500,8);
+    light.programar("08:00", 15);
 
-    uint retries = 0;
-    while(retries<RETRIES_MAX)
-    {
-        // 1. Conectar a WiFi
+    // Actualizamos el arreglo global con las instancias ya configuradas
+    misActuadores[0] = pump;
+    misActuadores[1] = light;
+    misActuadores[2] = hum;
+
+    unsigned int retries = 0;
+    while (retries < RETRIES_MAX) {
         if (conectar_wifi()) {
             indicatorLed.ShowStatus(OK_STATUS);
-            // 2. Consultar hora en línea y actualizar el RTC interno
             sincronizar_rtc_ntp();
             break;
-        }
-        else
-        {
+        } else {
             indicatorLed.ShowStatus(ERROR_STATUS);
             delay(500);
-            retries =retries+1;
-            Serial.println("reintentando...");
+            retries++;
+            Serial.println("Reintentando...");
         }
     }
     Serial.println("\nIniciando servicios en segundo plano...\n");
-    actuatorDaemon();
+    
+    // Llamada correcta pasando el arreglo y su tamaño
+    actuatorDaemon(misActuadores, NUM_ACTUADORES);
 }
 
 void loop() {
     unsigned long tiempoActual = millis();
 
-    // Tarea 1: Consulta periódica del RTC cada 10 segundos
     if (tiempoActual - ultimoTiempoRTC >= INTERVALO_RTC) {
         ultimoTiempoRTC = tiempoActual;
         bucle_consulta_rtc();
         indicatorLed.ShowStatus(PROCESS_STATUS);
     }
 
-    // Tarea 2: Demonio de evaluación del actuador cada 5 segundos
     if (tiempoActual - ultimoTiempoActuador >= INTERVALO_ACTUADOR) {
         ultimoTiempoActuador = tiempoActual;
-        actuatorDaemon();
+        actuatorDaemon(misActuadores, NUM_ACTUADORES);
+        indicatorLed.ShowStatus(OK_STATUS);
     }
 }
