@@ -15,6 +15,7 @@ ControlActuador::ControlActuador(int act_id, String nombre_act, uint8_t pin_num,
     duracion_horas = 1;
     tiempo_encendido = 0;
     servido = false;
+    tiempo_cambio = 0;
 
     pinMode(pin, OUTPUT);
     digitalWrite(pin, !logic);
@@ -52,17 +53,17 @@ void ControlActuador::Shot(uint8_t ticks_count, uint32_t delayTime) {
 void ControlActuador::programar(String hora_str, int duracion_h) {
     hora_programada = hora_str;
     duracion_horas = duracion_h;
-    Serial.println("Actuador programado");
+    Serial.println("Actuador: "+nombre + "programado y listo");
 }
 
 // Corregido: Se agregó el ámbito ControlActuador::
-void ControlActuador::programar(String hora_str, uint8_t ticks_p, uint32_t delay_p) {
+void ControlActuador::programar(String hora_str, uint8_t ticks_p, uint32_t delay_p, uint8_t duracion_h = 23) {
     hora_programada = hora_str;
     ticks = ticks_p;
     delay_ms = delay_p;
     servido = false; 
-    duracion_horas = 23;
-    Serial.println("Actuador SHOT PROGRAMADO");
+    duracion_horas = duracion_h;
+    Serial.println("Actuador: "+nombre + "programado y listo");
 }
 
 long ControlActuador::obtenerTiempoRestanteSeg() {
@@ -77,6 +78,32 @@ long ControlActuador::obtenerTiempoRestanteSeg() {
         return (restante > 0) ? restante : 0;
     }
     return 0;
+}
+uint32_t ControlActuador::GetTimeTillChange(){
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        return false;
+    }
+
+    int hora_actual = timeinfo.tm_hour;
+    int min_actual = timeinfo.tm_min;
+
+    int sepIndex = hora_programada.indexOf(':');
+    if (sepIndex == -1) return false;
+
+    int horasOn = hora_programada.substring(0, sepIndex).toInt();
+    int minutosOn = hora_programada.substring(sepIndex + 1).toInt();
+
+    int currentMinutes = hora_actual * 60 + min_actual;
+    int startMinutes = horasOn * 60 + minutosOn;
+    int durationMinutes = duracion_horas * 60;
+    int finalMinutes = (startMinutes + durationMinutes) % (24 * 60);
+
+    if (startMinutes >= currentMinutes) {
+        return  startMinutes-currentMinutes;
+    } else {
+        return finalMinutes-currentMinutes;
+    }
 }
 
 bool ControlActuador::detActuatorState() {
@@ -106,6 +133,20 @@ bool ControlActuador::detActuatorState() {
     }
 }
 
+String ControlActuador::CalculateNewOnHour(String oldHour, uint8_t period){
+    int sepIndex = oldHour.indexOf(':');
+    if (sepIndex == -1) return oldHour;
+
+    int horasOn = hora_programada.substring(0, sepIndex).toInt();
+    int minutosOn = hora_programada.substring(sepIndex + 1).toInt();
+
+    int newHorasOn = horasOn+period;
+    if(newHorasOn>24){
+        newHorasOn=newHorasOn-24;
+    }
+    return String(newHorasOn)+":"+String(minutosOn);
+}
+
 void ControlActuador::verificarTemporizador() {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
@@ -116,14 +157,15 @@ void ControlActuador::verificarTemporizador() {
 
     if (type == ON_OFF_TYPE) {
         actualizarHardware(state);
-    } else {
-        if (state && !servido) {
+    } else { //actuador intermitente
+        if (state && !servido) { //
             Shot(ticks, delay_ms);
             servido = true;
         }
-        else if(!state)
+        else if(!state && servido)
         {
             servido = false;
+            hora_programada = CalculateNewOnHour(hora_programada,duracion_horas);
         }
     }
 }

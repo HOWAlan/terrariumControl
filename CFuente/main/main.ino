@@ -4,13 +4,13 @@
 #include "ControlActuador.h"
 #include "RGBLed.h"
 
-#define PIN_R 21
-#define PIN_G 20
-#define PIN_B 19
+#define PIN_R 20
+#define PIN_G 19
+#define PIN_B 15
 
-#define PIN_PUMP 6 
-#define PIN_HUM 0 
-#define PIN_LIGHT 1
+#define PIN_PUMP 0 
+#define PIN_HUM 1 
+#define PIN_LIGHT 3
 
 #define RETRIES_MAX 3
 
@@ -68,15 +68,18 @@ bool conectar_wifi() {
     return true;
 }
 
-void sincronizar_rtc_ntp() {
+bool sincronizar_rtc_ntp() {
     Serial.println("Obteniendo hora desde el servidor NTP...");
+    indicatorLed.ShowStatus(RTC_PROCESS_STATUS);
     configTime(OFFSET_ZONA_HORARIA, DAYLIGHT_OFFSET, NTP_SERVER);
 
     struct tm timeinfo;
     if (getLocalTime(&timeinfo, 5000)) {
         Serial.println("RTC interno sincronizado con éxito.");
+        return true;
     } else {
         Serial.println("Error al sincronizar con el servidor NTP.");
+        return false;
     }
 }
 
@@ -125,7 +128,7 @@ void setup() {
 
     // Configuración inicial de los actuadores
     pump.programar("08:00", 23);
-    hum.programar("11:00", 4, 500,8);
+    hum.programar("08:30", 4, 500,12);
     light.programar("08:00", 15);
 
     // Actualizamos el arreglo global con las instancias ya configuradas
@@ -137,15 +140,29 @@ void setup() {
     while (retries < RETRIES_MAX) {
         if (conectar_wifi()) {
             indicatorLed.ShowStatus(OK_STATUS);
-            sincronizar_rtc_ntp();
             break;
         } else {
             indicatorLed.ShowStatus(ERROR_STATUS);
             delay(500);
             retries++;
-            Serial.println("Reintentando...");
+            Serial.println("Reintentando Conexión...");
         }
     }
+    retries = 0;
+    delay(1000);
+    while (retries < RETRIES_MAX) {
+        if(sincronizar_rtc_ntp()){
+            indicatorLed.ShowStatus(OK_STATUS);
+            break;
+        }else
+        {
+            indicatorLed.ShowStatus(ERROR_STATUS);
+            delay(500);
+            retries++;
+            Serial.println("Reintentando obtener hora desde NTP");
+        }
+    }
+    
     Serial.println("\nIniciando servicios en segundo plano...\n");
     
     // Llamada correcta pasando el arreglo y su tamaño
