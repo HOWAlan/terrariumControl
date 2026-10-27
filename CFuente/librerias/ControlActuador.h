@@ -44,7 +44,7 @@ public:
     String CalculateNewOnHour(String oldHour, uint8_t period);
     void verificarTemporizador();
     bool detActuatorState();
-    uint32_t ControlActuador::GetTimeTillChange();
+    uint32_t GetTimeTillChange();
 
     void toJsonObject(JsonObject& doc);
     

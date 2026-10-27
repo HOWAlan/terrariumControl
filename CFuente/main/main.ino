@@ -8,8 +8,8 @@
 #define PIN_G 19
 #define PIN_B 15
 
-#define PIN_PUMP 0 
-#define PIN_HUM 1 
+#define PIN_PUMP 1 
+#define PIN_HUM 0 
 #define PIN_LIGHT 3
 
 #define RETRIES_MAX 3
@@ -26,9 +26,9 @@ const int DAYLIGHT_OFFSET = 0;
 const char* NTP_SERVER = "pool.ntp.org";
 
 // --- INSTANCIAS GLOBALES ---
-ControlActuador pump(1, "bomba", PIN_PUMP, ON_OFF_TYPE);
-ControlActuador light(2, "lampara", PIN_LIGHT, ON_OFF_TYPE);
-ControlActuador hum(3, "Humidificador", PIN_HUM, SHOT_TYPE);
+ControlActuador pump(1, "bomba", PIN_PUMP, ON_OFF_TYPE,ACTIVE_LOW);
+ControlActuador light(2, "lampara", PIN_LIGHT, ON_OFF_TYPE,ACTIVE_LOW);
+ControlActuador hum(3, "Humidificador", PIN_HUM, SHOT_TYPE,ACTIVE_HIGH);
 
 // Arreglo global de actuadores
 ControlActuador misActuadores[3] = {pump, light, hum};
@@ -41,7 +41,7 @@ unsigned long ultimoTiempoRTC = 0;
 const unsigned long INTERVALO_RTC = 30000; // 30 segundos
 
 unsigned long ultimoTiempoActuador = 0;
-const unsigned long INTERVALO_ACTUADOR = 30000; // 30 segundos
+const unsigned long INTERVALO_ACTUADOR = 60000; // 30 segundos
 
 // -------------------------------------------------------------
 // FUNCIONES DE RED Y RELOJ
@@ -118,6 +118,25 @@ void actuatorDaemon(ControlActuador actuators[], int size) {
     Serial.println("______________________________________________");
 }
 
+void v2actuatorDaemon(ControlActuador actuators[], int size) {
+    Serial.println("______________________________________________");
+    Serial.println("Verificando contadores de actuadores...");
+    for (int i = 0; i < size; i++) {
+        if(actuators[i].tiempo_cambio >0)
+        {
+             actuators[i].tiempo_cambio =actuators[i].tiempo_cambio-1;
+            Serial.println("minutos antes del cambio de estado: "+String( actuators[i].tiempo_cambio));
+        }
+        if(actuators[i].tiempo_cambio <=0)
+        {
+            actuators[i].verificarTemporizador();
+            Serial.println(actuators[i].getActuatorInfo());
+        }
+        Serial.println("._._._._._._._._._._._._._._._._._._._._._._._._.");
+    }
+    Serial.println("______________________________________________");
+}
+
 // -------------------------------------------------------------
 // CONFIGURACIÓN Y BUCLE PRINCIPAL
 // -------------------------------------------------------------
@@ -129,7 +148,7 @@ void setup() {
     // Configuración inicial de los actuadores
     pump.programar("08:00", 23);
     hum.programar("08:30", 4, 500,12);
-    light.programar("08:00", 15);
+    light.programar("8:00", 15);
 
     // Actualizamos el arreglo global con las instancias ya configuradas
     misActuadores[0] = pump;
@@ -166,7 +185,7 @@ void setup() {
     Serial.println("\nIniciando servicios en segundo plano...\n");
     
     // Llamada correcta pasando el arreglo y su tamaño
-    actuatorDaemon(misActuadores, NUM_ACTUADORES);
+    v2actuatorDaemon(misActuadores, NUM_ACTUADORES);
 }
 
 void loop() {
@@ -175,12 +194,14 @@ void loop() {
     if (tiempoActual - ultimoTiempoRTC >= INTERVALO_RTC) {
         ultimoTiempoRTC = tiempoActual;
         bucle_consulta_rtc();
-        indicatorLed.ShowStatus(PROCESS_STATUS);
+        indicatorLed.ShowStatus(RTC_PROCESS_STATUS);
+        indicatorLed.ShowStatus(OK_STATUS);
     }
 
     if (tiempoActual - ultimoTiempoActuador >= INTERVALO_ACTUADOR) {
         ultimoTiempoActuador = tiempoActual;
-        actuatorDaemon(misActuadores, NUM_ACTUADORES);
+        v2actuatorDaemon(misActuadores, NUM_ACTUADORES);
+        indicatorLed.ShowStatus(PROCESS_STATUS);
         indicatorLed.ShowStatus(OK_STATUS);
     }
 }

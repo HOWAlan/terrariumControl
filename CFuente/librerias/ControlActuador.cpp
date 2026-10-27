@@ -168,6 +168,7 @@ void ControlActuador::verificarTemporizador() {
             hora_programada = CalculateNewOnHour(hora_programada,duracion_horas);
         }
     }
+    tiempo_cambio =GetTimeTillChange();
 }
 
 void ControlActuador::toJsonObject(JsonObject& obj) {
